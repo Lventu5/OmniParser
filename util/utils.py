@@ -17,18 +17,6 @@ import cv2
 import numpy as np
 # %matplotlib inline
 from matplotlib import pyplot as plt
-import easyocr
-from paddleocr import PaddleOCR
-reader = easyocr.Reader(['en'])
-paddle_ocr = PaddleOCR(
-    lang='en',  # other lang also available
-    use_angle_cls=False,
-    use_gpu=False,  # using cuda will conflict with pytorch in the same process
-    show_log=False,
-    max_batch_size=1024,
-    use_dilation=True,  # improves accuracy
-    det_db_score_mode='slow',  # improves accuracy
-    rec_batch_num=1024)
 import time
 import base64
 
@@ -42,6 +30,37 @@ from torchvision.transforms import ToPILImage
 import supervision as sv
 import torchvision.transforms as T
 from util.box_annotator import BoxAnnotator 
+
+reader = None
+paddle_ocr = None
+
+
+def get_easyocr_reader():
+    global reader
+    if reader is None:
+        import easyocr
+
+        # OCR only supplements detections; keep it off CUDA so import/use does not
+        # initialize extra GPU stacks in OmniParser host process.
+        reader = easyocr.Reader(['en'], gpu=False)
+    return reader
+
+
+def get_paddle_ocr():
+    global paddle_ocr
+    if paddle_ocr is None:
+        from paddleocr import PaddleOCR
+
+        paddle_ocr = PaddleOCR(
+            lang='en',  # other lang also available
+            use_angle_cls=False,
+            use_gpu=False,  # using cuda will conflict with pytorch in the same process
+            show_log=False,
+            max_batch_size=1024,
+            use_dilation=True,  # improves accuracy
+            det_db_score_mode='slow',  # improves accuracy
+            rec_batch_num=1024)
+    return paddle_ocr
 
 
 def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2-opt-2.7b", device=None):
@@ -514,13 +533,13 @@ def check_ocr_box(image_source: Union[str, Image.Image], display_img = True, out
             text_threshold = 0.5
         else:
             text_threshold = easyocr_args['text_threshold']
-        result = paddle_ocr.ocr(image_np, cls=False)[0]
+        result = get_paddle_ocr().ocr(image_np, cls=False)[0]
         coord = [item[0] for item in result if item[1][1] > text_threshold]
         text = [item[1][0] for item in result if item[1][1] > text_threshold]
     else:  # EasyOCR
         if easyocr_args is None:
             easyocr_args = {}
-        result = reader.readtext(image_np, **easyocr_args)
+        result = get_easyocr_reader().readtext(image_np, **easyocr_args)
         coord = [item[0] for item in result]
         text = [item[1] for item in result]
     if display_img:
